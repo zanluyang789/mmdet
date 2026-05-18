@@ -163,12 +163,18 @@ model = dict(
         max_per_img=100))
 
 # ============ 训练策略 ============
-# RetinaNet 官方 lr=0.01（Faster R-CNN 是 0.02）。
-# 单卡时一般再降到 0.0025 量级，但这里保持 mmdet 默认，多卡时直接用。
+# RetinaNet 官方 lr=0.01 是 8 GPU * bs 2 = 总 bs 16 的值。
+# 这里默认 0.0025 适配单卡 bs=4（线性缩放: 0.01 * 4/16）。
+# 多卡训练时按总 batch 等比例放大：
+#     1 GPU bs=2  -> 0.00125
+#     1 GPU bs=4  -> 0.0025   <-- 当前默认
+#     8 GPU bs=2  -> 0.01
+#
+# 加 clip_grad 作为发散兜底：bs 变化、数据异常、混合精度溢出都可能引起一次梯度爆炸。
 optim_wrapper = dict(
     type='OptimWrapper',
-    optimizer=dict(type='SGD', lr=0.01, momentum=0.9, weight_decay=0.0001),
-    clip_grad=None)
+    optimizer=dict(type='SGD', lr=0.0025, momentum=0.9, weight_decay=0.0001),
+    clip_grad=dict(max_norm=35, norm_type=2))
 
 # IterBased：与 mmseg 集成层风格一致；task.conf 里 max_iters / val_interval 会覆盖
 train_cfg = dict(
