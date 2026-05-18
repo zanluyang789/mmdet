@@ -38,6 +38,13 @@ else:
     from .device_utils import detect_device, setup_device_env
     from . import filelist_dataset  # noqa: F401
 
+# mmdet 3.x 的 default_scope='mmdet' 只触发 `import mmdet`，
+# 不会自动把 mmdet.models.* / mmdet.datasets.* / mmdet.engine.* 全部注册进各自 registry。
+# 不显式调一次 register_all_modules，Runner.from_cfg 会报
+# 'DetDataPreProcessor is not in the mmdet::model registry'。
+from mmdet.utils import register_all_modules
+register_all_modules(init_default_scope=True)
+
 
 DEFAULT_BASE_CONFIG = "configs/retinanet_r50_fpn_object.py"
 DEFAULT_TASK_CONF = "configs/task.conf"
