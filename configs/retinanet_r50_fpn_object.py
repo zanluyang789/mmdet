@@ -152,7 +152,13 @@ model = dict(
     test_cfg=dict(
         nms_pre=1000,
         min_bbox_size=0,
-        score_thr=0.05,
+        # score_thr=0.001 是 RetinaNet 论文 eval 的标准值，比 mmdet 默认的 0.05 低。
+        # 选 0.001 而非 0.05 的原因：RetinaHead 分类 bias 初始化为 ~ -4.6（Focal
+        # Loss 标准 trick），前几千 iter 所有 anchor 的 sigmoid 输出都被压在
+        # 0.01-0.05 之间。score_thr=0.05 会把整个 val set 过滤成空，让 mmdet
+        # coco_metric 打 ERROR 并跳过保存 best ckpt。下游推理 task.conf 里
+        # score_thr（PthRunner 默认 0.3）会再过滤一遍，所以这里给低点不影响线上。
+        score_thr=0.001,
         nms=dict(type='nms', iou_threshold=0.5),
         max_per_img=100))
 
