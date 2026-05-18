@@ -43,9 +43,9 @@ else:
 # 我们这里走"双保险"：
 #   1) 调 register_all_modules —— 大多数 mmdet 版本足够了
 #   2) 再显式 import 关键子模块，避免某些 mmdet 安装里 __init__ 没拉全的情况
-#      （观察到过的现象：register_all_modules 跑过但 DetDataPreProcessor 仍未注册）
+#      （观察到过的现象：register_all_modules 跑过但 DetDataPreprocessor 仍未注册）
 import mmdet.models                       # noqa: F401  triggers @register_module
-import mmdet.models.data_preprocessors    # noqa: F401  triggers DetDataPreProcessor
+import mmdet.models.data_preprocessors    # noqa: F401  triggers DetDataPreprocessor
 import mmdet.datasets                     # noqa: F401
 import mmdet.engine                       # noqa: F401
 import mmdet.evaluation                   # noqa: F401
