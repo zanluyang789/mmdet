@@ -227,6 +227,10 @@ def _maybe_apply_data_yaml(task_cfg: Dict[str, Any]) -> Dict[str, Any]:
     """
     若 task_cfg 里给了 data_file（YOLO 风格 yaml），解析它，并把字段反填到
     task_cfg（不存在的才填，不覆盖已显式给的）。返回处理后的 task_cfg。
+
+    扩展：如果 data.yaml 只给了图像目录、没给 train_ann/val_ann，
+    自动在 <image_dir>/../{labels,label} 探测 YOLO .txt，转 COCO JSON 缓存到
+    work_dir/auto_coco/{train,val}.json，并回填 train_ann_file / val_ann_file。
     """
     data_file = task_cfg.get("data_file")
     if not data_file or not os.path.exists(data_file):
@@ -252,7 +256,68 @@ def _maybe_apply_data_yaml(task_cfg: Dict[str, Any]) -> Dict[str, Any]:
         task_cfg.setdefault("classes_name", tuple(info["classes"]))
     if info.get("num_classes") and not task_cfg.get("num_classes"):
         task_cfg.setdefault("num_classes", int(info["num_classes"]))
+
+    # YOLO -> COCO 自动转换（仅在没有 COCO ann 但有 image_dir + names 时触发）
+    _autogen_coco_from_yolo(task_cfg, info)
+
     return task_cfg
+
+
+def _autogen_coco_from_yolo(task_cfg: Dict[str, Any], info: Dict[str, Any]) -> None:
+    """
+    探测 YOLO 标签目录并转 COCO JSON，反填 task_cfg。
+    无效 / 无标签情况静默跳过（让 train_ann_file 保持 None，
+    下游的 'train_ann_file 是空字符串' 报错更清晰）。
+    """
+    classes = task_cfg.get("classes_name") or info.get("classes")
+    if not classes:
+        return
+    if isinstance(classes, str):
+        classes = tuple(s.strip().strip("'\"") for s in
+                        classes.strip("()[] ").split(",") if s.strip())
+    names = list(classes)
+    if not names:
+        return
+
+    work_dir = (task_cfg.get("work_dir") or task_cfg.get("work_space")
+                or task_cfg.get("log_path") or ".")
+    cache_dir = os.path.join(work_dir, "auto_coco")
+
+    from .yolo2coco import find_labels_dir, yolo_to_coco
+
+    # train
+    if not task_cfg.get("train_ann_file"):
+        img_dir = info.get("train_img") or task_cfg.get("train_img_prefix")
+        if img_dir and os.path.isdir(img_dir):
+            label_dir = find_labels_dir(img_dir)
+            if label_dir:
+                out = os.path.join(cache_dir, "train.json")
+                try:
+                    yolo_to_coco(img_dir, label_dir, names, out)
+                    task_cfg["train_ann_file"] = out
+                    task_cfg.setdefault("train_img_prefix", img_dir)
+                except Exception as e:
+                    print(f"[yolo2coco] train 转换失败: {e}", flush=True)
+            else:
+                print(f"[yolo2coco] 没找到 train labels 目录 (image_dir={img_dir})",
+                      flush=True)
+
+    # val
+    if not task_cfg.get("val_ann_file"):
+        img_dir = info.get("val_img") or task_cfg.get("val_img_prefix")
+        if img_dir and os.path.isdir(img_dir):
+            label_dir = find_labels_dir(img_dir)
+            if label_dir:
+                out = os.path.join(cache_dir, "val.json")
+                try:
+                    yolo_to_coco(img_dir, label_dir, names, out)
+                    task_cfg["val_ann_file"] = out
+                    task_cfg.setdefault("val_img_prefix", img_dir)
+                except Exception as e:
+                    print(f"[yolo2coco] val 转换失败: {e}", flush=True)
+            else:
+                print(f"[yolo2coco] 没找到 val labels 目录 (image_dir={img_dir})",
+                      flush=True)
 
 
 def build_train_cfg(
