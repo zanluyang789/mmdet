@@ -11,7 +11,7 @@ mmdet/
 │
 ├── configs/
 │   ├── task.conf                       # 系统下发的【训练】参数文件 (位置固定)
-│   └── faster_rcnn_r50_fpn_object.py   # mmdet base config (COCO 80 类基础)
+│   └── retinanet_r50_fpn_object.py     # mmdet base config (单阶段 RetinaNet，单类默认)
 │
 ├── clie_lib/
 │   └── configs/
@@ -243,14 +243,14 @@ bash docker/export_image.sh npu     # -> dist/mmdet-npu-v1.tar.gz
 ```bash
 # 1) PyTorch -> ONNX
 python tools/export_onnx.py \
-    --config configs/faster_rcnn_r50_fpn_object.py \
+    --config configs/retinanet_r50_fpn_object.py \
     --ckpt work_dirs/best_coco_bbox_mAP.pth \
     --out detect.onnx \
     --img-h 800 --img-w 800 --max-dets 100
 
 # 2) 验证一致性（NPU 服务器之前在 GPU 上跑）
 python tools/verify_onnx.py \
-    --config configs/faster_rcnn_r50_fpn_object.py \
+    --config configs/retinanet_r50_fpn_object.py \
     --ckpt work_dirs/best_coco_bbox_mAP.pth \
     --onnx detect.onnx \
     --img some_test.jpg
@@ -268,10 +268,10 @@ python tools/infer_om.py --om detect.om --img some_test.jpg \
 #    然后  python predict.py infer --custom-config='task'
 ```
 
-**两阶段模型（Faster R-CNN）的 NMS 在 NPU 上不算友好算子，ATC 转 OM 可能报错或精度掉点。** 如果遇到这种情况，建议：
+**默认 base config 已是 RetinaNet（单阶段，ATC -> OM 友好）。** 如果想换检测器：
 
-- 改用单阶段检测，例如 RetinaNet / FCOS / YOLOX：在 `configs/` 下加一份对应的 mmdet config，把 `task.conf` 里 `base_config` 字段指向新 config 即可。
-- 或者用 [mmdeploy](https://github.com/open-mmlab/mmdeploy) 替代 `tools/export_onnx.py`，它内置了对 NPU/ATC 友好的算子映射。
+- 换其它单阶段（FCOS / YOLOX / ATSS）：在 `configs/` 下加一份 mmdet config，把 `task.conf` 里 `base_config` 指向新 config 即可，集成层自动适配。
+- 换回两阶段（Faster R-CNN / Cascade R-CNN）：能跑 GPU pth 推理，但 ATC 转 OM 时 RPN+RoI 二段 NMS 算子可能报错或精度下降；这种场景建议改用 [mmdeploy](https://github.com/open-mmlab/mmdeploy) 替代 `tools/export_onnx.py`，它内置了对 NPU/ATC 友好的算子映射。
 
 ## 设备 / 后端兼容矩阵
 
@@ -289,5 +289,5 @@ python tools/infer_om.py --om detect.om --img some_test.jpg \
 * `python -m integration.conf_parser configs/task.conf` 单独看 task.conf 解析效果
 * `python -m integration.device_utils` 看当前设备探测结果
 * `python -m integration.data_yaml /path/to/data.yaml` 看 yaml 解析效果
-* `python -m integration.config_builder configs/faster_rcnn_r50_fpn_object.py configs/task.conf` 打印注入后的完整 Config
+* `python -m integration.config_builder configs/retinanet_r50_fpn_object.py configs/task.conf` 打印注入后的完整 Config
 * CPU 模式跑通最快：`INTEGRATION_DEVICE=cpu python run.py train`（用一两个样本 + max_iters=10 测路径有没有错）

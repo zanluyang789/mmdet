@@ -95,7 +95,7 @@ class DetONNX(nn.Module):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--config', required=True,
-                    help='mmdet config，比如 configs/faster_rcnn_r50_fpn_object.py')
+                    help='mmdet config，比如 configs/retinanet_r50_fpn_object.py')
     ap.add_argument('--ckpt',   required=True, help='训练产物 .pth')
     ap.add_argument('--out',    default='detect.onnx')
     ap.add_argument('--img-h',  type=int, default=800)

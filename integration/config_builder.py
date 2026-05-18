@@ -452,10 +452,10 @@ def build_train_cfg(
 
 
 if __name__ == "__main__":
-    # 调试入口：python -m integration.config_builder configs/faster_rcnn_r50_fpn_object.py configs/task.conf
+    # 调试入口：python -m integration.config_builder configs/retinanet_r50_fpn_object.py configs/task.conf
     import sys
 
-    base = sys.argv[1] if len(sys.argv) > 1 else "configs/faster_rcnn_r50_fpn_object.py"
+    base = sys.argv[1] if len(sys.argv) > 1 else "configs/retinanet_r50_fpn_object.py"
     conf = sys.argv[2] if len(sys.argv) > 2 else "configs/task.conf"
     from .conf_parser import load_task_conf
 

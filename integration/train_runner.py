@@ -39,7 +39,7 @@ else:
     from . import filelist_dataset  # noqa: F401
 
 
-DEFAULT_BASE_CONFIG = "configs/faster_rcnn_r50_fpn_object.py"
+DEFAULT_BASE_CONFIG = "configs/retinanet_r50_fpn_object.py"
 DEFAULT_TASK_CONF = "configs/task.conf"
 
 
@@ -88,7 +88,7 @@ def main_cli(argv=None) -> int:
     系统调度调用：python run.py train
     可选 argv:
         --task-conf  configs/task.conf
-        --base       configs/faster_rcnn_r50_fpn_object.py
+        --base       configs/retinanet_r50_fpn_object.py
         --device     cuda/npu/cpu (覆盖自动探测)
     """
     parser = argparse.ArgumentParser("mmdet train (integration)")
@@ -98,7 +98,7 @@ def main_cli(argv=None) -> int:
     )
     parser.add_argument("--task-conf", default=DEFAULT_TASK_CONF)
     parser.add_argument("--base", default=None,
-                        help="mmdet base config（不传则用 configs/faster_rcnn_r50_fpn_object.py "
+                        help="mmdet base config（不传则用 configs/retinanet_r50_fpn_object.py "
                         "或 task.conf 里的 base_config）")
     parser.add_argument("--device", default=None, choices=[None, "cuda", "npu", "cpu"])
     # 文档里 ${nnodes} 等参数实际由 torchrun 处理，这里加几个占位

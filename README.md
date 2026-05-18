@@ -34,7 +34,7 @@ python predict.py infer --custom-config='task'
 
 * `run.py` / `predict.py`：训练 / 推理入口（薄壳）
 * `integration/`：task.conf 解析、设备探测、Runner、自定义 dataset / hook
-* `configs/faster_rcnn_r50_fpn_object.py`：默认 mmdet config
+* `configs/retinanet_r50_fpn_object.py`：默认 mmdet config（单阶段，ATC -> OM 友好）
 * `tools/`：数据准备、ONNX 导出、ONNX 验证、OM 单图推理
 * `deploy/`：大图滑窗推理、矢量化、Kafka 进度上报
 * `docker/Dockerfile.gpu` / `docker/Dockerfile.npu`：训练+推理一体镜像

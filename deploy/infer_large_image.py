@@ -280,7 +280,7 @@ def main():
     iou_thr = args.iou_thr if args.iou_thr is not None \
         else float(os.environ.get('IOU_THR', '0.5'))
     base_config = args.cfg or os.environ.get('CFG',
-                                             'configs/faster_rcnn_r50_fpn_object.py')
+                                             'configs/retinanet_r50_fpn_object.py')
 
     print('======== detect / infer_large_image ========', flush=True)
     print(f'input       = {input_tif}', flush=True)

@@ -70,7 +70,7 @@ class PthRunner:
 
     用法：
         runner = PthRunner('xxx.pth',
-                           config='configs/faster_rcnn_r50_fpn_object.py',
+                           config='configs/retinanet_r50_fpn_object.py',
                            device='cuda',
                            score_thr=0.3)
 
@@ -660,7 +660,7 @@ def run_inference(
     if suffix in (".pth", ".pt") and not base_config:
         base_config = (
             task_cfg.get("base_config")
-            or "configs/faster_rcnn_r50_fpn_object.py"
+            or "configs/retinanet_r50_fpn_object.py"
         )
 
     device = setup_device_env(device or task_cfg.get("device") or detect_device())
@@ -741,7 +741,7 @@ def main_cli(argv=None) -> int:
     parser.add_argument("--device", default=None,
                         choices=[None, "cuda", "npu", "cpu"])
     parser.add_argument("--base", default=None,
-                        help="pth 推理时的 mmdet config（不传则用 configs/faster_rcnn_r50_fpn_object.py）")
+                        help="pth 推理时的 mmdet config（不传则用 configs/retinanet_r50_fpn_object.py）")
     args = parser.parse_args(argv)
 
     cc = args.custom_config

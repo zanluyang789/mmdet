@@ -1,11 +1,14 @@
 # =====================================================================
-# Faster R-CNN R50-FPN 目标检测基础 config
+# RetinaNet R50-FPN 目标检测基础 config
 # ---------------------------------------------------------------------
-# 沿用 mmdet 官方 faster-rcnn_r50_fpn_1x_coco.py 的骨架，做了以下改动：
+# 沿用 mmdet 官方 retinanet_r50-fpn_1x_coco.py 的骨架，做了以下改动：
 #   1. data_root / ann_file 改成本项目占位路径，部署时由 task.conf 覆盖
-#   2. data_preprocessor.bgr_to_rgb=True 保持和昨天的 ONNX 导出一致
-#   3. 训练长度切到 iter-based（与 mmseg 集成层风格统一），由 task.conf 注入
-#   4. 默认 SyncBN，NPU 上 config_builder 会自动降级 BN
+#   2. num_classes=1（单类默认；task.conf 里 num_classes/classes_name 会覆盖）
+#   3. data_preprocessor.bgr_to_rgb=True 保持和 ONNX 导出一致
+#   4. 训练长度切到 iter-based（与 mmseg 集成层风格统一），由 task.conf 注入
+#   5. 默认 SyncBN，NPU 上 config_builder 会自动降级 BN
+#
+# 单阶段 + Focal Loss + 单次 NMS，对 ATC -> OM 比 Faster R-CNN 友好得多。
 # =====================================================================
 
 # ============ 数据集 ============
@@ -87,7 +90,7 @@ test_evaluator = val_evaluator
 norm_cfg = dict(type='SyncBN', requires_grad=True)
 
 model = dict(
-    type='FasterRCNN',
+    type='RetinaNet',
     data_preprocessor=dict(
         type='DetDataPreProcessor',
         mean=[123.675, 116.28, 103.53],
@@ -109,98 +112,56 @@ model = dict(
         type='FPN',
         in_channels=[256, 512, 1024, 2048],
         out_channels=256,
+        start_level=1,
+        add_extra_convs='on_input',
         num_outs=5),
-    rpn_head=dict(
-        type='RPNHead',
+    bbox_head=dict(
+        type='RetinaHead',
+        num_classes=1,
         in_channels=256,
+        stacked_convs=4,
         feat_channels=256,
         anchor_generator=dict(
             type='AnchorGenerator',
-            scales=[8],
+            octave_base_scale=4,
+            scales_per_octave=3,
             ratios=[0.5, 1.0, 2.0],
-            strides=[4, 8, 16, 32, 64]),
+            strides=[8, 16, 32, 64, 128]),
         bbox_coder=dict(
             type='DeltaXYWHBBoxCoder',
             target_means=[.0, .0, .0, .0],
             target_stds=[1.0, 1.0, 1.0, 1.0]),
         loss_cls=dict(
-            type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
+            type='FocalLoss',
+            use_sigmoid=True,
+            gamma=2.0,
+            alpha=0.25,
+            loss_weight=1.0),
         loss_bbox=dict(type='L1Loss', loss_weight=1.0)),
-    roi_head=dict(
-        type='StandardRoIHead',
-        bbox_roi_extractor=dict(
-            type='SingleRoIExtractor',
-            roi_layer=dict(type='RoIAlign', output_size=7, sampling_ratio=0),
-            out_channels=256,
-            featmap_strides=[4, 8, 16, 32]),
-        bbox_head=dict(
-            type='Shared2FCBBoxHead',
-            in_channels=256,
-            fc_out_channels=1024,
-            roi_feat_size=7,
-            num_classes=80,
-            bbox_coder=dict(
-                type='DeltaXYWHBBoxCoder',
-                target_means=[0., 0., 0., 0.],
-                target_stds=[0.1, 0.1, 0.2, 0.2]),
-            reg_class_agnostic=False,
-            loss_cls=dict(
-                type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
-            loss_bbox=dict(type='L1Loss', loss_weight=1.0))),
     train_cfg=dict(
-        rpn=dict(
-            assigner=dict(
-                type='MaxIoUAssigner',
-                pos_iou_thr=0.7,
-                neg_iou_thr=0.3,
-                min_pos_iou=0.3,
-                match_low_quality=True,
-                ignore_iof_thr=-1),
-            sampler=dict(
-                type='RandomSampler',
-                num=256,
-                pos_fraction=0.5,
-                neg_pos_ub=-1,
-                add_gt_as_proposals=False),
-            allowed_border=-1,
-            pos_weight=-1,
-            debug=False),
-        rpn_proposal=dict(
-            nms_pre=2000,
-            max_per_img=1000,
-            nms=dict(type='nms', iou_threshold=0.7),
-            min_bbox_size=0),
-        rcnn=dict(
-            assigner=dict(
-                type='MaxIoUAssigner',
-                pos_iou_thr=0.5,
-                neg_iou_thr=0.5,
-                min_pos_iou=0.5,
-                match_low_quality=False,
-                ignore_iof_thr=-1),
-            sampler=dict(
-                type='RandomSampler',
-                num=512,
-                pos_fraction=0.25,
-                neg_pos_ub=-1,
-                add_gt_as_proposals=True),
-            pos_weight=-1,
-            debug=False)),
+        assigner=dict(
+            type='MaxIoUAssigner',
+            pos_iou_thr=0.5,
+            neg_iou_thr=0.4,
+            min_pos_iou=0,
+            ignore_iof_thr=-1),
+        sampler=dict(type='PseudoSampler'),
+        allowed_border=-1,
+        pos_weight=-1,
+        debug=False),
     test_cfg=dict(
-        rpn=dict(
-            nms_pre=1000,
-            max_per_img=1000,
-            nms=dict(type='nms', iou_threshold=0.7),
-            min_bbox_size=0),
-        rcnn=dict(
-            score_thr=0.05,
-            nms=dict(type='nms', iou_threshold=0.5),
-            max_per_img=100)))
+        nms_pre=1000,
+        min_bbox_size=0,
+        score_thr=0.05,
+        nms=dict(type='nms', iou_threshold=0.5),
+        max_per_img=100))
 
 # ============ 训练策略 ============
+# RetinaNet 官方 lr=0.01（Faster R-CNN 是 0.02）。
+# 单卡时一般再降到 0.0025 量级，但这里保持 mmdet 默认，多卡时直接用。
 optim_wrapper = dict(
     type='OptimWrapper',
-    optimizer=dict(type='SGD', lr=0.02, momentum=0.9, weight_decay=0.0001),
+    optimizer=dict(type='SGD', lr=0.01, momentum=0.9, weight_decay=0.0001),
     clip_grad=None)
 
 # IterBased：与 mmseg 集成层风格一致；task.conf 里 max_iters / val_interval 会覆盖
