@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.Python
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 业务产物：训练 / 推理输出（很大，不进 git）
+work_dirs/
+outputs/
+runs/
+checkpoints/
+*.pth
+*.pt
+*.onnx
+*.om
+*.tar
+*.tar.gz
+dist/
+
+# 数据
+data/
+datasets/
+*.tif
+*.tiff
+
+# 日志
+*.log
+logs/
+log/
+events.out.tfevents.*
+
+# 临时
+*.tmp
+*.bak

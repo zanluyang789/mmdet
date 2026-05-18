@@ -1,0 +1,80 @@
+# =====================================================================
+# NPU 训练 + NPU 推理 一体镜像（mmdet）
+# ---------------------------------------------------------------------
+# 默认 BASE: mindie-base:v1.3  =  ascendhub/mindie-gdal-mmdet-mmseg:v1.3
+# 这个 base 已经预装：
+#   - CANN runtime + torch 2.1 + torch_npu
+#   - mmengine / mmcv / mmdet / mmsegmentation
+#   - rasterio / shapely / GDAL Python 绑定(osgeo)
+#   - numpy (2.x，跟 torch 2.1 不兼容，必须降 1.x)
+# 本 Dockerfile **只做增量补丁**：
+#   1) cv2 / Pillow 用到的 X11 / 字体系统库
+#   2) numpy 强制降到 1.x
+#   3) 缺的 pip 包按需补：opencv-python-headless / kafka-python / ftfy /
+#      regex / onnx / onnxruntime / fiona / pyyaml / pycocotools
+# =====================================================================
+ARG BASE_IMAGE=mindie-base:v1.3
+FROM ${BASE_IMAGE}
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    PYTHONIOENCODING=utf-8 \
+    PYTHONUNBUFFERED=1 \
+    INTEGRATION_DEVICE=npu
+
+# ---- 系统库 ----
+RUN ( \
+        apt-get update && apt-get install -y --no-install-recommends \
+            ca-certificates wget git vim \
+            libxcb1 libxrender1 libsm6 libxext6 \
+            libgl1-mesa-glx libglib2.0-0 \
+        && rm -rf /var/lib/apt/lists/* \
+    ) || ( \
+        dnf install -y --setopt=install_weak_deps=False --skip-broken \
+            ca-certificates wget git vim \
+            libxcb libXrender libSM libXext \
+            mesa-libGL glib2 \
+        && dnf clean all \
+    ) || ( \
+        yum install -y --skip-broken \
+            ca-certificates wget git vim \
+            libxcb libXrender libSM libXext \
+            mesa-libGL glib2 \
+        && yum clean all \
+    ) || echo "[warn] 系统库安装跳过：base 里可能已存在"
+
+# ---- Pass 1: 把 numpy 降到 1.x ----
+RUN python -m pip install --no-cache-dir --upgrade "setuptools<70" wheel && \
+    python -m pip install --no-cache-dir --force-reinstall "numpy<2"
+
+# ---- Pass 2: 补 base 里没有的小包 ----
+RUN python -m pip install --no-cache-dir \
+        opencv-python-headless==4.8.1.78 \
+        kafka-python==2.0.2 \
+        ftfy \
+        regex \
+        pyyaml \
+        pycocotools \
+        onnx==1.15.0 \
+        onnxruntime==1.16.3 \
+        || echo "[warn] 部分 pip 包安装失败，继续"
+
+# 卸载可能跟 headless 冲突的 opencv-python
+RUN python -m pip uninstall -y opencv-python 2>/dev/null || true
+
+# ---- Pass 3: fiona 可选 ----
+RUN python -m pip install --no-cache-dir fiona || \
+    echo "[warn] fiona 装失败，postprocess.py 会走 osgeo / geojson 兜底"
+
+# ---- 业务代码 ----
+WORKDIR /workspace/mmdet
+COPY . /workspace/mmdet
+
+ENV PYTHONPATH=/workspace/mmdet:/workspace/mmdet/deploy
+
+RUN chmod +x /workspace/mmdet/docker/entrypoint.sh && \
+    sed -i 's/\r$//' /workspace/mmdet/docker/entrypoint.sh
+
+ENTRYPOINT ["/workspace/mmdet/docker/entrypoint.sh"]
+CMD ["train"]

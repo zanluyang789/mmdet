@@ -1,0 +1,67 @@
+# =====================================================================
+# GPU 训练 + GPU 推理 一体镜像（mmdet）
+# ---------------------------------------------------------------------
+# 基础镜像：pytorch 官方 cuda 镜像（保证 GPU 训练可用）
+# 内置：mmdet 3.x、mmengine、mmcv、rasterio、shapely、fiona、kafka-python
+# 入口：/workspace/mmdet/docker/entrypoint.sh 根据 [train|infer] 分发
+# =====================================================================
+ARG BASE_IMAGE=pytorch/pytorch:2.1.0-cuda11.8-cudnn8-devel
+FROM ${BASE_IMAGE}
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    PYTHONIOENCODING=utf-8 \
+    PYTHONUNBUFFERED=1
+
+# ---- 系统依赖 ----
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git wget vim ca-certificates \
+        libgl1-mesa-glx libglib2.0-0 \
+        gdal-bin libgdal-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV CPLUS_INCLUDE_PATH=/usr/include/gdal \
+    C_INCLUDE_PATH=/usr/include/gdal
+
+# ---- Python 依赖 ----
+RUN pip install --no-cache-dir -U pip && \
+    pip install --no-cache-dir \
+        openmim==0.3.9 \
+        numpy==1.24.4 \
+        opencv-python==4.8.1.78 \
+        pillow \
+        tqdm \
+        tensorboard \
+        rasterio==1.3.9 \
+        shapely==2.0.2 \
+        fiona==1.9.5 \
+        kafka-python==2.0.2 \
+        pyyaml \
+        onnx==1.15.0 \
+        onnxruntime-gpu==1.16.3 \
+        onnxsim==0.4.36 \
+        ftfy \
+        regex \
+        pycocotools
+
+RUN mim install \
+        "mmengine>=0.10.0" \
+        "mmcv>=2.1.0,<2.2.0" \
+        "mmdet>=3.2.0"
+
+# ---- 业务代码 ----
+WORKDIR /workspace/mmdet
+COPY . /workspace/mmdet
+
+# 让 deploy/ 也能被 import
+ENV PYTHONPATH=/workspace/mmdet:/workspace/mmdet/deploy
+
+RUN chmod +x /workspace/mmdet/docker/entrypoint.sh && \
+    sed -i 's/\r$//' /workspace/mmdet/docker/entrypoint.sh
+
+# 默认 device：GPU
+ENV INTEGRATION_DEVICE=cuda
+
+ENTRYPOINT ["/workspace/mmdet/docker/entrypoint.sh"]
+CMD ["train"]
