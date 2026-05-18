@@ -40,8 +40,17 @@ else:
 
 # mmdet 3.x 的 default_scope='mmdet' 只触发 `import mmdet`，
 # 不会自动把 mmdet.models.* / mmdet.datasets.* / mmdet.engine.* 全部注册进各自 registry。
-# 不显式调一次 register_all_modules，Runner.from_cfg 会报
-# 'DetDataPreProcessor is not in the mmdet::model registry'。
+# 我们这里走"双保险"：
+#   1) 调 register_all_modules —— 大多数 mmdet 版本足够了
+#   2) 再显式 import 关键子模块，避免某些 mmdet 安装里 __init__ 没拉全的情况
+#      （观察到过的现象：register_all_modules 跑过但 DetDataPreProcessor 仍未注册）
+import mmdet.models                       # noqa: F401  triggers @register_module
+import mmdet.models.data_preprocessors    # noqa: F401  triggers DetDataPreProcessor
+import mmdet.datasets                     # noqa: F401
+import mmdet.engine                       # noqa: F401
+import mmdet.evaluation                   # noqa: F401
+import mmdet.structures                   # noqa: F401
+import mmdet.visualization                # noqa: F401
 from mmdet.utils import register_all_modules
 register_all_modules(init_default_scope=True)
 
