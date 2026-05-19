@@ -586,7 +586,34 @@ def _process_one(img_path: str, output_root: str, runner,
     if img_bgr.shape[2] == 4:
         img_bgr = img_bgr[:, :, :3]
 
-    dets = runner.infer(img_bgr)
+    # 大图自动切滑窗：mmdet 默认 test_pipeline 会把整图 Resize 到 (1333, 800)，
+    # 一张 7800x7900 的遥感图缩到 ~1333x1350，桥梁/小目标会被压成几像素，根本检不到。
+    # 解决：边长超过 tile_size * slide_min_ratio 时，切瓦片单独推理，跨瓦片 NMS。
+    h, w = img_bgr.shape[:2]
+    tile_size = int(task_cfg.get("tile_size", 800))
+    tile_stride = int(task_cfg.get("tile_stride", 600))
+    iou_thr = float(task_cfg.get("iou_thr", 0.5))
+    slide_min_ratio = float(task_cfg.get("slide_min_ratio", 1.5))
+    force_slide = bool(task_cfg.get("use_slide_window", False))
+    use_slide = force_slide or (max(h, w) > tile_size * slide_min_ratio)
+
+    if use_slide:
+        from deploy.infer_large_image import slide_detect
+        import cv2
+
+        print(f"[infer] sliding window: image={h}x{w} "
+              f"tile={tile_size} stride={tile_stride} iou_thr={iou_thr}",
+              flush=True)
+        # slide_detect 要 (3, H, W) RGB uint8
+        rgb_chw = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB).transpose(2, 0, 1)
+        # PthRunner / ONNXRunner / OMRunner 内部都已做过 score_thr 过滤，
+        # 这里再传一次给 slide_detect 也无妨（同值则等价 no-op）。
+        score_thr_for_slide = float(task_cfg.get("score_thr", 0.3))
+        dets = slide_detect(rgb_chw, runner,
+                            tile=tile_size, stride=tile_stride,
+                            score_thr=score_thr_for_slide, iou_thr=iou_thr)
+    else:
+        dets = runner.infer(img_bgr)
 
     # JSON
     js = _dets_to_json(dets, img_path, names)
