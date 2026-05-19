@@ -58,6 +58,7 @@ RUN python -m pip install --no-cache-dir \
         pycocotools \
         onnx==1.15.0 \
         onnxruntime==1.16.3 \
+        tensorboard \
         || echo "[warn] 部分 pip 包安装失败，继续"
 
 # 卸载可能跟 headless 冲突的 opencv-python
