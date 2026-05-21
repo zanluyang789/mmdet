@@ -10,8 +10,12 @@
 # 本 Dockerfile **只做增量补丁**：
 #   1) cv2 / Pillow 用到的 X11 / 字体系统库
 #   2) numpy 强制降到 1.x
-#   3) 缺的 pip 包按需补：opencv-python-headless / kafka-python / ftfy /
-#      regex / onnx / onnxruntime / fiona / pyyaml / pycocotools
+#   3) 缺的 pip 包按需补：
+#        opencv-python-headless / kafka-python / ftfy / regex / pyyaml /
+#        pycocotools / onnx / onnxruntime / fiona /
+#        tensorboard (训练 TensorboardVisBackend 必需，钉版本) /
+#        protobuf 3.20.3 (避 onnx 1.15 Descriptors 报错) /
+#        onnxsim (export_onnx 用，可选)
 # =====================================================================
 ARG BASE_IMAGE=mindie-base:v1.3
 FROM ${BASE_IMAGE}
@@ -58,7 +62,6 @@ RUN python -m pip install --no-cache-dir \
         pycocotools \
         onnx==1.15.0 \
         onnxruntime==1.16.3 \
-        tensorboard \
         || echo "[warn] 部分 pip 包安装失败，继续"
 
 # 卸载可能跟 headless 冲突的 opencv-python
@@ -67,6 +70,18 @@ RUN python -m pip uninstall -y opencv-python 2>/dev/null || true
 # ---- Pass 3: fiona 可选 ----
 RUN python -m pip install --no-cache-dir fiona || \
     echo "[warn] fiona 装失败，postprocess.py 会走 osgeo / geojson 兜底"
+
+# ---- Pass 4: TensorBoard 训练日志 ----
+# mmengine TensorboardVisBackend 走 torch.utils.tensorboard.SummaryWriter，
+# 必须有 pip `tensorboard`。torch 2.1 配 tensorboard 2.14.x 最稳。
+# 同时钉 protobuf 3.20.3，避免 onnx 1.15 触发 "Descriptors cannot be created directly"。
+RUN python -m pip install --no-cache-dir \
+        "protobuf==3.20.3" \
+        "tensorboard==2.14.0"
+
+# ---- Pass 5: 部署/导出阶段才会用到的可选包（best-effort，失败不阻塞训练镜像）----
+RUN python -m pip install --no-cache-dir onnxsim==0.4.36 \
+        || echo "[warn] onnxsim 装失败，export_onnx 会跳过 simplify 步骤"
 
 # ---- 业务代码 ----
 WORKDIR /workspace/mmdet
