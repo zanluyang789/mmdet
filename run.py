@@ -87,8 +87,79 @@ def _load_ascend_env(
 
 
 _load_ascend_env()
+
+
 # ============================================================================
-# 以上是 Ascend 环境注入，下面是原 run.py 业务逻辑（未改动）
+# Patch mmcv.ops.nms 到 torchvision.ops.nms（CPU）
+# ----------------------------------------------------------------------------
+# mmcv 在 mindie base 里编 C++ extension 时只带了 CPU/CUDA NMS kernel，
+# 没注册 NPU 实现。val 阶段检测头跑 batched_nms 时会报：
+#     RuntimeError: nms_impl: implementation for device npu:0 not found.
+#
+# mmcv.ops.nms.batched_nms 内部用 eval('nms') 在本模块作用域取 nms 函数，
+# 所以替换 mmcv.ops.nms.nms 这个 module attribute 就够，不需要 patch
+# autograd.Function。NPU tensor 拷到 CPU 跑 torchvision.ops.nms，inds
+# 再拷回原 device。NMS 前已经按 score_thr 过滤，剩下几百~几千个 bbox，
+# 拷贝 + CPU NMS 总开销 < 1ms，对 val 时长几乎无感。
+#
+# GPU / CPU 路径走原版 nms，不受影响。
+# ============================================================================
+def _patch_mmcv_nms_for_npu():
+    try:
+        import mmcv.ops.nms as mmcv_nms_mod
+        import numpy as np
+        import torch
+        import torchvision
+    except ImportError as exc:
+        print(f"[run.py] mmcv/torchvision 不可用，跳过 NMS patch: {exc}", flush=True)
+        return
+
+    _orig_nms = mmcv_nms_mod.nms
+
+    def _patched_nms(boxes, scores, iou_threshold,
+                     offset=0, score_threshold=0, max_num=-1):
+        # ndarray 走原版（不上 NPU）
+        if isinstance(boxes, np.ndarray):
+            return _orig_nms(boxes, scores, iou_threshold,
+                             offset, score_threshold, max_num)
+        # 非 NPU device 走原版（GPU / CPU 都正常）
+        if not (hasattr(boxes, "device") and "npu" in str(boxes.device)):
+            return _orig_nms(boxes, scores, iou_threshold,
+                             offset, score_threshold, max_num)
+
+        # NPU tensor：拷 CPU + torchvision NMS
+        is_filtering_by_score = score_threshold > 0
+        if is_filtering_by_score:
+            valid_mask = scores > score_threshold
+            boxes, scores = boxes[valid_mask], scores[valid_mask]
+            valid_inds = torch.nonzero(valid_mask, as_tuple=False).squeeze(dim=1)
+
+        device = boxes.device
+        bx = boxes.detach().cpu().float()
+        sc = scores.detach().cpu().float()
+        # mmcv offset=1 风格：bbox 是 (x1,y1,x2-1,y2-1)；torchvision 是 offset=0 风格
+        if offset == 1:
+            bx = bx.clone()
+            bx[:, 2] += 1
+            bx[:, 3] += 1
+
+        inds = torchvision.ops.nms(bx, sc, float(iou_threshold)).to(device)
+
+        if max_num > 0:
+            inds = inds[:max_num]
+        if is_filtering_by_score:
+            inds = valid_inds[inds]
+
+        dets = torch.cat((boxes[inds], scores[inds].reshape(-1, 1)), dim=1)
+        return dets, inds
+
+    mmcv_nms_mod.nms = _patched_nms
+    print("[run.py] patched mmcv.ops.nms.nms -> torchvision.ops.nms (CPU) for NPU", flush=True)
+
+
+_patch_mmcv_nms_for_npu()
+# ============================================================================
+# 以上是 Ascend 环境注入 + mmcv NMS patch，下面是原 run.py 业务逻辑（未改动）
 # ============================================================================
 
 
