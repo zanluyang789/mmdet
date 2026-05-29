@@ -1,19 +1,17 @@
 """
 系统集成入口 - 训练
 ====================
-
 文档要求："模型训练默认启动脚本：python run.py train"
 
 支持的命令行（系统会用 ${nnodes} 等替换后调过来）：
-    单卡：       python run.py train
-    多卡：       python -m torch.distributed.run --nnodes=1 --node_rank=0 \
-                    --nproc_per_node=4 --master_addr=127.0.0.1 \
-                    --master_port=29500 run.py train
-
+    单卡： python run.py train
+    多卡： python -m torch.distributed.run --nnodes=1 --node_rank=0 \
+              --nproc_per_node=4 --master_addr=127.0.0.1 \
+              --master_port=29500 run.py train
     或者按文档原文的写法：
-        python --nnodes=${nnodes} --node_rank=${node_rank} \
-            --nproc_per_node=${nproc_per_node} --master_addr=${master_addr} \
-            --master_port=${master_port} run.py train
+    python --nnodes=${nnodes} --node_rank=${node_rank} \
+              --nproc_per_node=${nproc_per_node} --master_addr=${master_addr} \
+              --master_port=${master_port} run.py train
 
 参数从 configs/task.conf 读取。
 设备由 INTEGRATION_DEVICE 强制 / 自动探测（torch_npu 优先 -> CUDA -> CPU）。
@@ -102,17 +100,28 @@ _load_ascend_env()
 # 再拷回原 device。NMS 前已经按 score_thr 过滤，剩下几百~几千个 bbox，
 # 拷贝 + CPU NMS 总开销 < 1ms，对 val 时长几乎无感。
 #
+# 注意：mmcv/ops/__init__.py 会把 nms 函数 re-export 到 `mmcv.ops.nms`
+# 这个名字上，从而**遮住**了同名子模块（mmcv/ops/nms.py）。所以
+# `import mmcv.ops.nms as m` 拿到的其实是 nms 函数本身，m.nms 会报
+#     AttributeError: 'function' object has no attribute 'nms'
+# 真正的子模块对象必须从 sys.modules["mmcv.ops.nms"] 取。
+#
 # GPU / CPU 路径走原版 nms，不受影响。
 # ============================================================================
 def _patch_mmcv_nms_for_npu():
     try:
-        import mmcv.ops.nms as mmcv_nms_mod
+        import mmcv.ops          # 触发 ops 包加载
+        import mmcv.ops.nms      # noqa: F401 确保子模块注册进 sys.modules
         import numpy as np
         import torch
         import torchvision
     except ImportError as exc:
         print(f"[run.py] mmcv/torchvision 不可用，跳过 NMS patch: {exc}", flush=True)
         return
+
+    # `mmcv.ops.nms` 这个属性名被 __init__.py re-export 成了 nms 函数，
+    # 真正的子模块要从 sys.modules 取，否则取到的是函数（没有 .nms 属性）
+    mmcv_nms_mod = sys.modules["mmcv.ops.nms"]
 
     _orig_nms = mmcv_nms_mod.nms
 
@@ -122,6 +131,7 @@ def _patch_mmcv_nms_for_npu():
         if isinstance(boxes, np.ndarray):
             return _orig_nms(boxes, scores, iou_threshold,
                              offset, score_threshold, max_num)
+
         # 非 NPU device 走原版（GPU / CPU 都正常）
         if not (hasattr(boxes, "device") and "npu" in str(boxes.device)):
             return _orig_nms(boxes, scores, iou_threshold,
@@ -137,6 +147,7 @@ def _patch_mmcv_nms_for_npu():
         device = boxes.device
         bx = boxes.detach().cpu().float()
         sc = scores.detach().cpu().float()
+
         # mmcv offset=1 风格：bbox 是 (x1,y1,x2-1,y2-1)；torchvision 是 offset=0 风格
         if offset == 1:
             bx = bx.clone()
@@ -158,11 +169,11 @@ def _patch_mmcv_nms_for_npu():
 
 
 _patch_mmcv_nms_for_npu()
+
+
 # ============================================================================
 # 以上是 Ascend 环境注入 + mmcv NMS patch，下面是原 run.py 业务逻辑（未改动）
 # ============================================================================
-
-
 def _ensure_repo_on_path():
     here = os.path.dirname(os.path.abspath(__file__))
     if here not in sys.path:
@@ -172,7 +183,6 @@ def _ensure_repo_on_path():
 def main():
     _ensure_repo_on_path()
     from integration.train_runner import main_cli
-
     sys.exit(main_cli())
 
 
